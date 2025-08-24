@@ -1,0 +1,242 @@
+---
+title: "Project2"
+name: Harsha Somaya and Jane Maguire
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Load the libraries
+```{r}
+library(rpart)
+library(car)
+library(boot)
+```
+
+### Load the data 
+```{r}
+dat <- read.csv("RiverN.csv")
+```
+
+### Basic Summary Statistics
+```{r}
+summary(dat$NO3)
+sd(dat$NO3)
+IQR(dat$NO3)
+
+summary(dat$Density)
+sd(dat$Density)
+IQR(dat$Density)
+
+summary(dat$Discharge)
+sd(dat$Discharge)
+IQR(dat$Discharge)
+
+summary(dat$Runoff)
+sd(dat$Runoff)
+IQR(dat$Runoff)
+
+summary(dat$Area)
+sd(dat$Area)
+IQR(dat$Area)
+
+summary(dat$NPrec)
+sd(dat$NPrec)
+IQR(dat$NPrec)
+
+summary(dat$Prec)
+sd(dat$Prec)
+IQR(dat$Prec)
+```
+
+First, we fit a model with all of the explanatory vairbales and see any inisghts from this.
+### Main effects model only
+```{r}
+main.effects <- lm (NO3~Density+Discharge+Runoff+Area+NPrec+Prec, data= dat) #full main effects model
+summary(main.effects)
+```
+Only density is satistically significant. We should include density in our model. Next, we look for any interaction terms below. 
+
+### Regression Tree
+
+We examine the interaction terms suggested by the regression tree 
+```{r}
+#Do trees to discover interaction effects
+interaction.effects <- rpart(NO3~Density+Discharge+Runoff+Area+NPrec+Prec, data= dat, control = rpart.control(minsplit = 5))
+par(xpd = TRUE) # allows text to "eXPanD" (spill over outside the plotting area)
+plot(interaction.effects) # show the tree structure
+text(interaction.effects, pretty = 0) # add text labels
+
+
+##Interaction model suggested by tree
+interaction.lm.inital <- lm (NO3~Density+ I(Density^2) + NPrec+ Runoff+ Density:Runoff + NPrec:Density, data= dat)
+```
+We use Density, I(Density^2), NPrec, Runoff, Density:Runoff and NPrec:Density in our initial interaction model because this was suggested by the regression tree. The model suggests that the effect of runoff on 
+
+It makes sense that density appears twice since we saw from the summary(main effects model) that it was the only significant variable. 
+
+
+### Perform Kfold to avoid overfiting 
+```{r}
+#KFOLD CV
+main.effects.kfold = glm(main.effects, data= dat)
+cv.error1 = cv.glm(dat, main.effects.kfold, K=10)
+cv.error1$delta[2]
+
+interaction.lm.kfold = glm(NO3~Density+ I(Density^2) + NPrec+ Runoff+ Density:Runoff + NPrec:Density, data= dat)
+cv.error2 = cv.glm(dat, interaction.lm.kfold, K=10)
+cv.error2$delta[2]
+
+```
+We want a lower Kfold. The k fold for our second order polynomial is lower than the kfold from the full main effects model. Hence, the second order polynomial model may be better after checking for conditions and performing necessary tests below. 
+
+### Check for Multicollinearity 
+```{r}
+vif(interaction.lm.inital)
+vif(main.effects)
+
+
+#Correlation pair test 
+round(cor(dat), 2)
+pairs(dat, pch = ".")
+```
+The VIF for density and runoff are both less than 5 in the main effects model. Of course, density and density^2 will be correlated in the interaction model. Runoff has a low VIF, which is good. However, Density:Runoff has a VIF>5, so perhaps this interaction term should be removed. We examine further with anova. We will keep density since we know density is important from the summary on the main effects model. We will decide if the other suggested terms by the regression tree are necessary. 
+
+
+### ANOVA to test models 
+```{r}
+denisty.only <- lm (NO3~Density, data = dat) 
+anova(denisty.only, interaction.lm.inital)
+
+```
+We found that going from the only density model to the complicated one suggested by the tree leads to a p value of 1.6e-08. We wanted to see if we simplify this model. We use summary() to check for this.
+
+### Summary on models
+```{r}
+summary(interaction.lm.inital)
+```
+From interaction.lm.inital, we found significant p values from the t test for density^2 (0.00037), density:runoff (0.01164), and Density:NPrec (0.0071) but not for the main effects of density nor runoff nor NPrec. Hence, it does not make sense for us to use this complicated model that has significant interaction terms but insignificant main effects. The density explanatory variable is not significant only because density^2 is also in this model. We know from the beginning that density is a varibale we should include. We proceeded with the simpler model of NO3~density + density^2 and check its conditions. This way, we have a simple model with significant explanatory variables. 
+
+```{r}
+density.squared <- lm(NO3~Density+I(Density^2), data = dat)
+summary(density.squared)
+```
+The R^2 squared is high at 0.826 and the density^2 term is signfiicant. Hence, perhaps we did not loose much predictive power by using this simple model. We check conditions for it below. 
+
+### CONDITIONS
+
+#### Main effects model conditions
+```{r}
+plot(main.effects, which = 1:2)
+```
+As a baseline, the main effects model does not satisfy linearity nor equal variance. We should not use this model, as suspected. 
+
+
+
+#### Interaction model conditions
+
+```{r}
+plot(density.squared, which = 1:2)
+```
+The model we wanted to use does not satisfy linearity nor equal variance. Hence, we cannot use this model.  We will have to perform a transformation, such as the natural log transformation.  
+
+
+
+### Natural Log transformation of the NO3 Variable 
+```{r}
+dat$ln.NO3 <- log(dat$NO3)
+main.effects.log <- lm (ln.NO3~Density+Discharge+Runoff+Area+NPrec+Prec, data= dat)
+
+##DO trees to discover interaction effects?
+interaction.lm.log <- rpart(ln.NO3~Density+Discharge+Runoff+Area+NPrec+Prec, data= dat)
+par(xpd = TRUE) # allows text to "eXPanD" (spill over outside the plotting area)
+plot(interaction.lm.log) # show the tree structure
+text(interaction.lm.log, pretty = 0) # add text labels
+```
+
+After running the regression, we see that we don't need to include runoff or other main effects or interaction effects because it is not included in the regression tree. This indicate a model of ln.NO3~density + density^2. We will check if this is an appropriate model below.
+
+### Check K-fold values to avoid overfitting
+```{r}
+##Interaction
+interaction.model.log <- lm (ln.NO3~Density+ I(Density^2), data= dat)
+
+
+#KFOLD CV
+main.effects.kfold.log = glm(main.effects.log, data= dat)
+cv.error1.log = cv.glm(dat, main.effects.kfold.log, K=10)
+cv.error1.log$delta[2]
+
+interaction.effects.kfold.log = glm(interaction.model.log, data= dat)
+cv.error2.log = cv.glm(dat, interaction.effects.kfold.log, K=10)
+cv.error2.log$delta[2]
+```
+
+The k-fold values are about the same, so we choose to use the simpler model.
+
+
+### Check for Multicollinearity
+```{r}
+vif(interaction.model.log)
+vif(main.effects.log)
+
+round(cor(dat), 2)
+pairs(dat, pch = ".")
+```
+
+Of course, in the interaction model the densities will be correlated with each other because Density^2 = Density*Density. Hence, we decide to still use this model.
+
+
+### Assumptions for chosen model
+```{r}
+plot(interaction.model.log, which = 1:2)
+summary(interaction.model.log)
+```
+
+The model we wanted to use does not satisfy linearity nor equal variance. Hence, we cannot use this model.  We will have investigate adding a third degree to our polynomial model. 
+
+### Third degree polynomial model
+```{r}
+model.log.degree.3 <- lm(ln.NO3~Density+ I(Density^2) + I(Density^3), data= dat)
+summary(model.log.degree.3)
+plot(model.log.degree.3, which = 1:2)
+anova( interaction.model.log, model.log.degree.3)
+```
+
+The summary statistics for the model show that the p-values for our variables are statistically significant. We then check conditions and Linearity and Equal variance are met here. There does appear to be an outlier when looking at the RVF plot but, we can equal variance still holds among the rest of the data. Normality is consistently met throughout our data analysis. Since all conditions of linear regression are met, we can use this model. The anova test confirms this is a good model to use because the p-value for this model is significant.
+
+### Pertinant Plots
+```{r}
+plot(ln.NO3~Density+Density^2+Density^3, data= dat, xlab= "Density+Density^2+Density^3")
+plot(NO3~Density, data = dat, xlab = "Density")
+```
+
+### Summary Statistics on chosen model
+```{r}
+summary(dat$ln.NO3)
+sd(dat$ln.NO3)
+IQR(dat$ln.NO3)
+
+summary(dat$Density)
+sd(dat$Density)
+IQR(dat$Density)
+
+summary(dat$Density^2)
+sd(dat$Density^2)
+IQR(dat$Density^2)
+
+summary(dat$Density^3)
+sd(dat$Density^3)
+IQR(dat$Density^3)
+
+hist(dat$NO3,  main = "Distribution of ln(NO3)", xlab= "ln(NO3)")
+```
+
+
+In conclusion, the best model that can be used to predict nitrate concentration in a given river is ln.NO3 ~ density + density^2 + density^3.
+
